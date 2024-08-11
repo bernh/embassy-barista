@@ -11,8 +11,16 @@ use esp_hal::{
     gpio::{Input, Io, Level, Output, Pull},
     peripherals::Peripherals,
     prelude::*,
+    rng::Rng,
     system::SystemControl,
-    timer::{timg::TimerGroup, OneShotTimer},
+    timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
+};
+use esp_wifi::{
+    wifi::{
+        ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
+        WifiState,
+    },
+    EspWifiInitFor,
 };
 use static_cell::make_static;
 
@@ -72,12 +80,24 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks, None);
     let timer0 = OneShotTimer::new(timg0.timer0.into());
     let timg1 = TimerGroup::new(peripherals.TIMG1, &clocks, None);
-    let timer1 = OneShotTimer::new(timg1.timer0.into());
+    let timer1: ErasedTimer = timg1.timer0.into();
     // only using a single timer works as well, but I assume there is some reason
     // that multiple ones can be provided to embassy.
-    let timers = [timer0, timer1];
+    let timers = [timer0];
     let timers = make_static!(timers);
     esp_hal_embassy::init(&clocks, timers);
+
+    let wifi_init = esp_wifi::initialize(
+        EspWifiInitFor::Wifi,
+        PeriodicTimer::new(timer1),
+        Rng::new(peripherals.RNG),
+        peripherals.RADIO_CLK,
+        &clocks,
+    )
+    .unwrap();
+    let wifi = peripherals.WIFI;
+    let (wifi_interface, controller) =
+        esp_wifi::wifi::new_with_mode(&wifi_init, wifi, WifiStaDevice).unwrap();
 
     spawner.spawn(measure_distance(io)).ok();
 
