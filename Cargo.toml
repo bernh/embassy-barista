@@ -20,11 +20,14 @@ esp-hal = { version = "0.19.0", features = ["esp32c3", "async"] }
 esp-hal-embassy = { version = "0.2.0", features = ["esp32c3", "integrated-timers"]}
 esp-backtrace = { version = "0.13.0", features = ["esp32c3", "exception-handler", "panic-handler", "println"] }
 esp-println = { version = "0.10.0", features = ["esp32c3", "log"] }
-esp-wifi = { version = "0.7.1", features = ["esp32c3", "wifi", "ble"] }
+esp-wifi = { version = "0.7.1", features = ["esp32c3", "wifi", "wifi-default", "utils", "tcp"] }
 
+smoltcp = { version = "0.11.0", default-features = false, features = [ "medium-ethernet", "socket-raw", "proto-ipv4"] }
 riscv-rt = "0.12.2"
 log = { version = "0.4.21" }
 static_cell = { version = "2.1.0", features = ["nightly"] }
+heapless = "0.8.0"
+embedded-io = "0.6.1"
 
 
 [profile.dev]
