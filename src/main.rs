@@ -36,7 +36,7 @@ const GATEWAY_IP: &'static str = env!("GATEWAY_IP");
 
 #[embassy_executor::task]
 async fn measure_distance(io: Io) {
-    let mut trigger = Output::new(io.pins.gpio4, Level::Low);
+    let mut trigger = Output::new(io.pins.gpio3, Level::Low);
     let mut echo = Input::new(io.pins.gpio5, Pull::Down);
 
     let mut r_pin = Output::new(io.pins.gpio6, Level::Low);
@@ -47,6 +47,7 @@ async fn measure_distance(io: Io) {
     let mut t2: Instant;
 
     loop {
+        // println!("entering measurment loop");
         trigger.set_high();
         Delay.delay_us(1).await; // why is this working? Delay is a struct type but no instance...
         trigger.set_low();
@@ -59,24 +60,24 @@ async fn measure_distance(io: Io) {
         let duration = t2.duration_since(t1);
         let distance = f32::from(duration.as_micros() as u16) * 0.343 / 2.0; // with t in [us] -> distance in [mm]
         match distance {
-            x if x < 100.0 => {
+            x if x < 125.0 => {
                 r_pin.set_low();
-                g_pin.set_high(); // GREEN
+                g_pin.set_high(); // GREEN (full: 45 mm)
                 b_pin.set_low();
             }
-            x if x < 200.0 => {
+            x if x < 205.0 => {
                 r_pin.set_low();
                 g_pin.set_low();
                 b_pin.set_high(); // BLUE
             }
             _ => {
-                r_pin.set_high(); // RED
+                r_pin.set_high(); // RED (empty: 240 mm)
                 g_pin.set_low();
                 b_pin.set_low();
             }
         }
         println!("distance: {distance} mm");
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after(Duration::from_millis(100)).await;
     }
 }
 
@@ -97,6 +98,7 @@ async fn main(spawner: Spawner) {
     let timers = make_static!(timers);
     esp_hal_embassy::init(&clocks, timers);
 
+    spawner.spawn(measure_distance(io)).ok();
     // relevant Wifi examples:
     // - https://github.com/esp-rs/esp-hal/blob/main/examples/src/bin/wifi_static_ip.rs
     let wifi_init = esp_wifi::initialize(
@@ -180,16 +182,13 @@ async fn main(spawner: Spawner) {
     let mut rx_buffer = [0u8; 1536];
     let mut tx_buffer = [0u8; 1536];
     let mut socket = wifi_stack.get_socket(&mut rx_buffer, &mut tx_buffer);
-
     socket.listen(8080).unwrap();
-
-    spawner.spawn(measure_distance(io)).ok();
 
     loop {
         socket.work();
 
         if !socket.is_open() {
-            socket.listen(8080).unwrap();
+            socket.listen(8080).unwrap(); // blocks!!!
         }
 
         if socket.is_connected() {
