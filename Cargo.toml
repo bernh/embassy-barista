@@ -6,8 +6,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-executor = { version = "0.5.0", features = [
-    "nightly",
+embassy-executor = { version = "0.6.0", features = [
     "arch-riscv32",
 ] }
 embassy-sync = "0.6.0"
@@ -16,11 +15,11 @@ embassy-time = "0.3.1"
 embedded-hal-async = "1.0.0"
 embedded-io-async = "0.6.1"
 
-esp-hal = { version = "0.19.0", features = ["esp32c3", "async"] }
-esp-hal-embassy = { version = "0.2.0", features = ["esp32c3", "integrated-timers"]}
-esp-backtrace = { version = "0.13.0", features = ["esp32c3", "exception-handler", "panic-handler", "println"] }
-esp-println = { version = "0.10.0", features = ["esp32c3", "log"] }
-esp-wifi = { version = "0.7.1", features = ["esp32c3", "wifi", "wifi-default", "utils", "tcp", "udp"] }
+esp-hal = { version = "0.20.1", features = ["esp32c3", "async"] }
+esp-hal-embassy = { version = "0.3.0", features = ["esp32c3", "integrated-timers"]}
+esp-backtrace = { version = "0.14.1", features = ["esp32c3", "exception-handler", "panic-handler", "println"] }
+esp-println = { version = "0.11.0", features = ["esp32c3", "log"] }
+esp-wifi = { version = "0.9.1", features = ["esp32c3", "wifi", "wifi-default", "utils", "tcp", "udp"] }
 
 smoltcp = { version = "0.11.0", default-features = false, features = [ "medium-ethernet", "socket-raw", "proto-ipv4"] }
 riscv-rt = "0.12.2"
@@ -28,6 +27,7 @@ log = { version = "0.4.21" }
 static_cell = { version = "2.1.0", features = ["nightly"] }
 heapless = "0.8.0"
 embedded-io = "0.6.1"
+# embassy-net = { version = "0.4.0", features = ["proto-ipv4", "tcp", "udp"] }
 
 
 [profile.dev]
