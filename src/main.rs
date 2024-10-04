@@ -37,7 +37,7 @@ const GATEWAY_IP: &'static str = env!("GATEWAY_IP");
 
 #[embassy_executor::task]
 async fn measure_distance(io: Io) {
-    let mut trigger = Output::new(io.pins.gpio3, Level::Low);
+    let mut trigger = Output::new(io.pins.gpio4, Level::Low);
     let mut echo = Input::new(io.pins.gpio5, Pull::Down);
 
     let mut r_pin = Output::new(io.pins.gpio6, Level::Low);
@@ -53,9 +53,9 @@ async fn measure_distance(io: Io) {
         Delay.delay_us(1).await; // why is this working? Delay is a struct type but no instance...
         trigger.set_low();
 
-        echo.wait_for_high().await;
+        echo.wait_for_high().await; // TODO: timeout?
         t1 = Instant::now();
-        echo.wait_for_falling_edge().await;
+        echo.wait_for_falling_edge().await; // TODO: timeout?
         t2 = Instant::now();
 
         let duration = t2.duration_since(t1);
@@ -78,7 +78,7 @@ async fn measure_distance(io: Io) {
             }
         }
         println!("distance: {distance} mm");
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(1000)).await;
     }
 }
 
@@ -107,15 +107,14 @@ async fn main(spawner: Spawner) {
         &clocks,
     )
     .unwrap();
-
     let wifi = peripherals.WIFI;
     let mut socket_set_entries: [SocketStorage; 3] = Default::default();
     let (iface, device, mut controller, sockets) =
         create_network_interface(&wifi_init, wifi, WifiStaDevice, &mut socket_set_entries).unwrap();
+    connect(&mut controller);
 
-    spawner.spawn(connection(controller)).ok();
-
-    // let mut wifi_stack = WifiStack::new(iface, device, sockets, current_millis);
+    let mut wifi_stack = WifiStack::new(iface, device, sockets, current_millis);
+    ip_config(&mut wifi_stack);
 
     let mut count = 0;
     loop {
@@ -125,8 +124,25 @@ async fn main(spawner: Spawner) {
     }
 }
 
-#[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
+fn ip_config(wifi_stack: &mut WifiStack<'_, WifiStaDevice>) {
+    wifi_stack
+        .set_iface_configuration(&esp_wifi::wifi::ipv4::Configuration::Client(
+            esp_wifi::wifi::ipv4::ClientConfiguration::Fixed(
+                esp_wifi::wifi::ipv4::ClientSettings {
+                    ip: esp_wifi::wifi::ipv4::Ipv4Addr::from(parse_ip(STATIC_IP)),
+                    subnet: esp_wifi::wifi::ipv4::Subnet {
+                        gateway: esp_wifi::wifi::ipv4::Ipv4Addr::from(parse_ip(GATEWAY_IP)),
+                        mask: esp_wifi::wifi::ipv4::Mask(24),
+                    },
+                    dns: None,
+                    secondary_dns: None,
+                },
+            ),
+        ))
+        .unwrap();
+}
+
+fn connect(controller: &mut WifiController<'static>) {
     println!("start connection task");
     println!("Device capabilities: {:?}", controller.get_capabilities());
 
@@ -140,19 +156,34 @@ async fn connection(mut controller: WifiController<'static>) {
     controller.start().unwrap();
     println!("Wifi started!");
 
-    println!("About to connect...");
     match controller.connect() {
-        Ok(_) => println!("Wifi connected!"),
+        Ok(_) => {
+            println!("Wifi connection initiated");
+        }
         Err(e) => {
             println!("Failed to connect to wifi: {e:?}");
         }
     }
+    loop {
+        let res = controller.is_connected();
+        match res {
+            Ok(true) => {
+                println!("Wifi connected");
+                break;
+            }
+            Ok(false) => continue,
+            Err(err) => {
+                println!("{:?}", err);
+                loop {}
+            }
+        }
+    }
 }
 
-// fn parse_ip(ip: &str) -> [u8; 4] {
-//     let mut result = [0u8; 4];
-//     for (idx, octet) in ip.split(".").into_iter().enumerate() {
-//         result[idx] = u8::from_str_radix(octet, 10).unwrap();
-//     }
-//     result
-// }
+fn parse_ip(ip: &str) -> [u8; 4] {
+    let mut result = [0u8; 4];
+    for (idx, octet) in ip.split(".").into_iter().enumerate() {
+        result[idx] = u8::from_str_radix(octet, 10).unwrap();
+    }
+    result
+}
