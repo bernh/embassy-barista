@@ -18,7 +18,10 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_wifi::{
-    wifi::{ClientConfiguration, Configuration, WifiController, WifiDevice, WifiStaDevice},
+    wifi::{
+        ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
+        WifiState,
+    },
     EspWifiInitFor,
 };
 
@@ -116,6 +119,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(&stack)).ok();
+    spawner.spawn(dhcp_handshake(&stack)).ok();
 
     let mut count = 0;
     loop {
@@ -130,6 +134,14 @@ async fn connection(mut controller: WifiController<'static>) {
     println!("start connection task");
     println!("Device capabilities: {:?}", controller.get_capabilities());
     loop {
+        match esp_wifi::wifi::get_wifi_state() {
+            WifiState::StaConnected => {
+                // wait here for an eventual disconnect and connect again afterwards
+                controller.wait_for_event(WifiEvent::StaDisconnected).await;
+                Timer::after(Duration::from_millis(5000)).await
+            }
+            _ => (),
+        }
         if !matches!(controller.is_started(), Ok(true)) {
             let client_config = Configuration::Client(ClientConfiguration {
                 ssid: SSID.try_into().unwrap(),
@@ -156,4 +168,23 @@ async fn connection(mut controller: WifiController<'static>) {
 #[embassy_executor::task]
 async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
     stack.run().await
+}
+
+#[embassy_executor::task]
+async fn dhcp_handshake(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+    loop {
+        if stack.is_link_up() {
+            break;
+        }
+        Timer::after(Duration::from_millis(100)).await;
+    }
+
+    println!("Waiting to get IP address...");
+    loop {
+        if let Some(config) = stack.config_v4() {
+            println!("Got IP: {}", config.address);
+            break;
+        }
+        Timer::after(Duration::from_millis(100)).await;
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-barista"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Bernhard Leiner <bernhard@bernh.net>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -19,7 +19,7 @@ esp-hal = { version = "0.20.1", features = ["esp32c3", "async"] }
 esp-hal-embassy = { version = "0.3.0", features = ["esp32c3", "integrated-timers"]}
 esp-backtrace = { version = "0.14.1", features = ["esp32c3", "exception-handler", "panic-handler", "println"] }
 esp-println = { version = "0.11.0", features = ["esp32c3", "log"] }
-esp-wifi = { version = "0.9.1", features = ["esp32c3", "wifi", "wifi-default", "udp", "async", "smoltcp", "embassy-net"] }
+esp-wifi = { version = "0.9.1", features = ["esp32c3", "wifi", "wifi-default", "udp", "tcp", "async", "smoltcp", "embassy-net"] }
 
 smoltcp = { version = "0.11.0", default-features = false, features = [ "medium-ethernet", "socket-raw", "proto-ipv4"] }
 riscv-rt = "0.12.2"
@@ -27,7 +27,7 @@ log = { version = "0.4.21" }
 static_cell = { version = "2.1.0", features = ["nightly"] }
 heapless = "0.8.0"
 embedded-io = "0.6.1"
-embassy-net = { version = "0.4.0", features = ["medium-ethernet", "proto-ipv4", "dhcpv4", "udp"] }
+embassy-net = { version = "0.4.0", features = ["medium-ethernet", "proto-ipv4", "dhcpv4", "udp", "tcp"] }
 
 
 [profile.dev]
