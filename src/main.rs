@@ -3,9 +3,10 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
-use embassy_net::{Config, Stack, StackResources};
+use embassy_net::{tcp::TcpSocket, Config, Ipv4Address, Stack, StackResources};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use embedded_hal_async::delay::DelayNs;
+use embedded_io_async::Write;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -87,7 +88,6 @@ async fn main(spawner: Spawner) {
     // Init embassy and kick-off periodic measurement task
     let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
     esp_hal_embassy::init(&clocks, timg0.timer0);
-    spawner.spawn(measure_distance(io)).ok();
 
     // Init and connect to WIFI
     // relevant Wifi example:
@@ -119,14 +119,51 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(&stack)).ok();
-    spawner.spawn(dhcp_handshake(&stack)).ok();
 
-    let mut count = 0;
+    dhcp_handshake(&stack).await;
+    send_musiccast_command(&stack).await;
+
+    spawner.spawn(measure_distance(io)).ok();
+
     loop {
-        esp_println::println!("Main Task Count: {}", count);
-        count += 1;
         Timer::after(Duration::from_millis(5000)).await;
     }
+}
+
+async fn send_musiccast_command(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+    let mut rx_buffer = [0u8; 4096];
+    let mut tx_buffer = [0u8; 4096];
+    let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
+    socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+
+    let remote_endpoint = (Ipv4Address::new(192, 168, 50, 201), 80);
+    println!("connecting...");
+    let r = socket.connect(remote_endpoint).await;
+    if let Err(e) = r {
+        println!("connect error: {:?}", e);
+        return;
+    }
+    println!("connected!");
+    let mut buf = [0; 1024];
+    let r = socket
+        .write_all(b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.0\r\nHost: 192.168.50.201\r\n\r\n")
+        .await;
+    if let Err(e) = r {
+        println!("write error: {:?}", e);
+        return;
+    }
+    let n = match socket.read(&mut buf).await {
+        Ok(0) => {
+            println!("read EOF");
+            return;
+        }
+        Ok(n) => n,
+        Err(e) => {
+            println!("read error: {:?}", e);
+            return;
+        }
+    };
+    println!("{}", core::str::from_utf8(&buf[..n]).unwrap());
 }
 
 #[embassy_executor::task]
@@ -170,7 +207,6 @@ async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
     stack.run().await
 }
 
-#[embassy_executor::task]
 async fn dhcp_handshake(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
     loop {
         if stack.is_link_up() {

@@ -6,9 +6,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-executor = { version = "0.6.0", features = [
-    "arch-riscv32",
-] }
+# instead of using a fixed task-arena-size the "nightly" feature includes a compile
+# time calculation of the required static memory size. Ran into a strange compile
+# error when trying with version 0.6.0
+embassy-executor = { version = "0.6.0", features = [ "arch-riscv32", "task-arena-size-16384" ] } 
 embassy-sync = "0.6.0"
 embassy-time = "0.3.1"
 
