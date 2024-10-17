@@ -33,6 +33,18 @@ const PASSWORD: &'static str = env!("PASSWORD");
 
 const CMD_POWER_ON : &[u8] = b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.0\r\nHost: 192.168.50.201\r\n\r\n";
 
+/// Measures the distance using the ultrasonic sensor and controls the RGB LED based on the measured distance.
+///
+/// This function uses GPIO pins 4 and 5 for the ultrasonic sensor and pins 6, 7, and 8 for the RGB LED.
+/// It sends a pulse to the trigger pin (GPIO 4) and measures the time it takes for the echo pin (GPIO 5)
+/// to go high and then fall back down. The time difference is used to calculate the distance in millimeters.
+///
+/// The RGB LED is controlled based on the distance:
+/// * Green: Distance less than 125 mm
+/// * Blue: Distance between 125 mm and 205 mm
+/// * Red: Distance greater than 205 mm
+///
+/// The distance measurement is repeated every second.
 #[embassy_executor::task]
 async fn measure_distance(io: Io) {
     let mut trigger = Output::new(io.pins.gpio4, Level::Low);
@@ -46,7 +58,6 @@ async fn measure_distance(io: Io) {
     let mut t2: Instant;
 
     loop {
-        // println!("entering measurment loop");
         trigger.set_high();
         Delay.delay_us(1).await; // why is this working? Delay is a struct type but no instance...
         trigger.set_low();
@@ -175,6 +186,11 @@ async fn send_http_command(
     println!("{}", core::str::from_utf8(&http_response[..n]).unwrap());
 }
 
+/// Connects (and maintains connection) to the WiFi network.
+///
+/// This function will continuously attempt to connect to the WiFi network defined by the `SSID`
+/// and `PASSWORD` environment variables. On a disconnection event if will try to reconnect.
+///
 #[embassy_executor::task]
 async fn connection(mut controller: WifiController<'static>) {
     println!("start connection task");
@@ -211,11 +227,24 @@ async fn connection(mut controller: WifiController<'static>) {
     }
 }
 
+/// Runs the network stack.
+///
+/// This function starts the network stack and runs it continuously.
+/// This is required to process network events.
+///
+/// # Arguments
+///
+/// * `stack`: The network stack
 #[embassy_executor::task]
 async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
     stack.run().await
 }
 
+/// Performs a DHCP request to obtain an IP address.
+///
+/// # Arguments
+///
+/// * `stack`: The network stack
 async fn dhcp_handshake(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
     loop {
         if stack.is_link_up() {
