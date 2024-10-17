@@ -31,7 +31,7 @@ use static_cell::StaticCell;
 const SSID: &'static str = env!("SSID");
 const PASSWORD: &'static str = env!("PASSWORD");
 
-const CMD_POWER_ON : &[u8] = b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.0\r\nHost: 192.168.50.201\r\n\r\n";
+const CMD_POWER_ON : &[u8] = b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.1\r\nHost: 192.168.50.201\r\n\r\n";
 
 /// Measures the distance using the ultrasonic sensor and controls the RGB LED based on the measured distance.
 ///
@@ -59,7 +59,7 @@ async fn measure_distance(io: Io) {
 
     loop {
         trigger.set_high();
-        Delay.delay_us(1).await; // why is this working? Delay is a struct type but no instance...
+        Delay.delay_us(1).await;
         trigger.set_low();
 
         echo.wait_for_high().await; // TODO: timeout?
@@ -136,7 +136,10 @@ async fn main(spawner: Spawner) {
     dhcp_handshake(&stack).await;
 
     let mut http_response = [0u8; 1024];
-    send_http_command(&stack, CMD_POWER_ON, &mut http_response).await;
+    match send_http_command(&stack, CMD_POWER_ON, &mut http_response).await {
+        Ok(bytes) => println!("{}", core::str::from_utf8(&http_response[..bytes]).unwrap()),
+        Err(e) => println!("HttpCmdError: {:?}", e),
+    }
 
     spawner.spawn(measure_distance(io)).ok();
 
@@ -144,6 +147,26 @@ async fn main(spawner: Spawner) {
         Timer::after(Duration::from_millis(5000)).await;
     }
 }
+
+#[derive(Debug)]
+enum HttpCmdError {
+    Connect(embassy_net::tcp::ConnectError),
+    Tcp(embassy_net::tcp::Error),
+    HttpError(usize),
+}
+
+impl From<embassy_net::tcp::ConnectError> for HttpCmdError {
+    fn from(e: embassy_net::tcp::ConnectError) -> Self {
+        HttpCmdError::Connect(e)
+    }
+}
+
+impl From<embassy_net::tcp::Error> for HttpCmdError {
+    fn from(e: embassy_net::tcp::Error) -> Self {
+        HttpCmdError::Tcp(e)
+    }
+}
+
 /// Starts a new TCP socket and connects to the specified remote endpoint.
 ///
 ///  This function works on a best effort base. If an error occurs, an error message is printed to the
@@ -158,32 +181,36 @@ async fn send_http_command(
     stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>,
     http_cmd: &[u8],
     http_response: &mut [u8],
-) {
+) -> Result<usize, HttpCmdError> {
     let remote_endpoint = (Ipv4Address::new(192, 168, 50, 201), 80);
     let mut rx_buffer = [0u8; 4096];
     let mut tx_buffer = [0u8; 4096];
     let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
-    socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+    socket.set_timeout(Some(embassy_time::Duration::from_secs(2)));
 
-    let r = socket.connect(remote_endpoint).await;
-    if let Err(e) = r {
-        println!("socket connect error: {:?}", e);
-        return;
-    }
+    socket.connect(remote_endpoint).await?;
+    socket.write_all(http_cmd).await?;
+    let bytes = socket.read(http_response).await?;
 
-    let r = socket.write_all(http_cmd).await;
-    if let Err(e) = r {
-        println!("socket write error: {:?}", e);
-        return;
-    }
-    let n = match socket.read(http_response).await {
-        Ok(n) => n,
-        Err(e) => {
-            println!("socket read error: {:?}", e);
-            return;
+    // http_response starts with "HTTP/1.1 200 OK\r\n"
+    let mut ret_code: usize = 0;
+    if bytes >= 12 {
+        if let Ok(r_str) = core::str::from_utf8(&http_response[9..=11]) {
+            if let Ok(r) = str::parse::<usize>(r_str) {
+                ret_code = r;
+                if ret_code == 200 {
+                    return Ok(bytes);
+                }
+            }
         }
-    };
-    println!("{}", core::str::from_utf8(&http_response[..n]).unwrap());
+    }
+    // if we reach this point something is wrong with the return code
+    println!(
+        "Non sucessful return code: {}\n{}",
+        ret_code,
+        core::str::from_utf8(&http_response[..bytes]).unwrap()
+    );
+    Err(HttpCmdError::HttpError(ret_code))
 }
 
 /// Connects (and maintains connection) to the WiFi network.
