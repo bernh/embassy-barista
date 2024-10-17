@@ -31,6 +31,8 @@ use static_cell::StaticCell;
 const SSID: &'static str = env!("SSID");
 const PASSWORD: &'static str = env!("PASSWORD");
 
+const CMD_POWER_ON : &[u8] = b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.0\r\nHost: 192.168.50.201\r\n\r\n";
+
 #[embassy_executor::task]
 async fn measure_distance(io: Io) {
     let mut trigger = Output::new(io.pins.gpio4, Level::Low);
@@ -121,7 +123,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(net_task(&stack)).ok();
 
     dhcp_handshake(&stack).await;
-    send_musiccast_command(&stack).await;
+
+    let mut http_response = [0u8; 1024];
+    send_http_command(&stack, CMD_POWER_ON, &mut http_response).await;
 
     spawner.spawn(measure_distance(io)).ok();
 
@@ -129,41 +133,46 @@ async fn main(spawner: Spawner) {
         Timer::after(Duration::from_millis(5000)).await;
     }
 }
-
-async fn send_musiccast_command(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+/// Starts a new TCP socket and connects to the specified remote endpoint.
+///
+///  This function works on a best effort base. If an error occurs, an error message is printed to the
+///  console.
+///
+/// # Arguments
+///
+/// * `stack`: The network stack
+/// * `http_cmd`: The HTTP command to send
+/// * `http_response`: The buffer where the response will be stored
+async fn send_http_command(
+    stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>,
+    http_cmd: &[u8],
+    http_response: &mut [u8],
+) {
+    let remote_endpoint = (Ipv4Address::new(192, 168, 50, 201), 80);
     let mut rx_buffer = [0u8; 4096];
     let mut tx_buffer = [0u8; 4096];
     let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
-    let remote_endpoint = (Ipv4Address::new(192, 168, 50, 201), 80);
-    println!("connecting...");
     let r = socket.connect(remote_endpoint).await;
     if let Err(e) = r {
-        println!("connect error: {:?}", e);
+        println!("socket connect error: {:?}", e);
         return;
     }
-    println!("connected!");
-    let mut buf = [0; 1024];
-    let r = socket
-        .write_all(b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.0\r\nHost: 192.168.50.201\r\n\r\n")
-        .await;
+
+    let r = socket.write_all(http_cmd).await;
     if let Err(e) = r {
-        println!("write error: {:?}", e);
+        println!("socket write error: {:?}", e);
         return;
     }
-    let n = match socket.read(&mut buf).await {
-        Ok(0) => {
-            println!("read EOF");
-            return;
-        }
+    let n = match socket.read(http_response).await {
         Ok(n) => n,
         Err(e) => {
-            println!("read error: {:?}", e);
+            println!("socket read error: {:?}", e);
             return;
         }
     };
-    println!("{}", core::str::from_utf8(&buf[..n]).unwrap());
+    println!("{}", core::str::from_utf8(&http_response[..n]).unwrap());
 }
 
 #[embassy_executor::task]
