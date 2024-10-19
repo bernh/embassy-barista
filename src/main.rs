@@ -150,9 +150,9 @@ async fn main(spawner: Spawner) {
 
 #[derive(Debug)]
 enum HttpCmdError {
-    Connect(embassy_net::tcp::ConnectError),
+    Connect(#[allow(unused)] embassy_net::tcp::ConnectError),
     Tcp(embassy_net::tcp::Error),
-    HttpError(usize),
+    HttpError(#[allow(unused)] usize),
 }
 
 impl From<embassy_net::tcp::ConnectError> for HttpCmdError {
