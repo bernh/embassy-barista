@@ -31,7 +31,9 @@ use static_cell::StaticCell;
 const SSID: &'static str = env!("SSID");
 const PASSWORD: &'static str = env!("PASSWORD");
 
-const CMD_POWER_ON : &[u8] = b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.1\r\nHost: 192.168.50.201\r\n\r\n";
+const CMD_POWER_ON : &[u8] = b"GET /YamahaExtendedControl/v1/main/setPower?power=on HTTP/1.0\r\nHost: 192.168.50.201\r\n\r\n";
+const GET_TIME_VIENNA: &[u8] =
+    b"GET /api/timezone/Europe/Vienna HTTP/1.1\r\nHost: worldtimeapi.org\r\n\r\n";
 
 /// Measures the distance using the ultrasonic sensor and controls the RGB LED based on the measured distance.
 ///
@@ -132,20 +134,48 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(&stack)).ok();
-
     dhcp_handshake(&stack).await;
 
-    let mut http_response = [0u8; 1024];
-    match send_http_command(&stack, CMD_POWER_ON, &mut http_response).await {
-        Ok(bytes) => println!("{}", core::str::from_utf8(&http_response[..bytes]).unwrap()),
-        Err(e) => println!("HttpCmdError: {:?}", e),
-    }
-
     spawner.spawn(measure_distance(io)).ok();
+
+    get_time_vienna(stack).await;
+    turn_on_radio(stack).await;
 
     loop {
         Timer::after(Duration::from_millis(5000)).await;
     }
+}
+
+async fn turn_on_radio(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+    let mut http_response = [0u8; 1024];
+    match send_http_command(
+        &stack,
+        CMD_POWER_ON,
+        Ipv4Address::new(192, 168, 50, 201),
+        &mut http_response,
+    )
+    .await
+    {
+        Ok(bytes) => println!("{}", core::str::from_utf8(&http_response[..bytes]).unwrap()),
+        Err(e) => println!("HttpCmdError: {:?}", e),
+    }
+}
+
+async fn get_time_vienna(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+    let mut http_response = [0u8; 1024];
+    match send_http_command(
+        &stack,
+        GET_TIME_VIENNA,
+        Ipv4Address::new(213, 188, 196, 246),
+        &mut http_response,
+    )
+    .await
+    {
+        Ok(bytes) => println!("{}", core::str::from_utf8(&http_response[..bytes]).unwrap()),
+        Err(e) => println!("HttpCmdError: {:?}", e),
+    }
+
+    // TODO parse JSON
 }
 
 #[derive(Debug)]
@@ -180,9 +210,10 @@ impl From<embassy_net::tcp::Error> for HttpCmdError {
 async fn send_http_command(
     stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>,
     http_cmd: &[u8],
+    host: Ipv4Address,
     http_response: &mut [u8],
 ) -> Result<usize, HttpCmdError> {
-    let remote_endpoint = (Ipv4Address::new(192, 168, 50, 201), 80);
+    let remote_endpoint = (host, 80);
     let mut rx_buffer = [0u8; 4096];
     let mut tx_buffer = [0u8; 4096];
     let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
